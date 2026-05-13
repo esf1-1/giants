@@ -1,0 +1,1811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Giants, baby! · San Francisco Giants analytics dashboard</title>
+<meta name="description" content="Live San Francisco Giants analytics dashboard: trailing-window hitter and pitcher metrics (wRC+, FIP, xwOBA, hard-hit %, whiff rate), FanGraphs playoff odds, MLB team hot/cold rankings, fielding OAA, pitch-mix change detection, and the 2025 vs 2026 record tracker. Refreshed twice daily." />
+<meta name="theme-color" content="#FD5A1E" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --giants-orange: #FD5A1E;
+    --giants-orange-dim: #c64715;
+    --giants-cream: #EFD19F;
+    --giants-black: #0a0a0a;
+    --panel-bg: #141414;
+    --panel-bg-2: #1a1a1a;
+    --panel-border: #2a2a2a;
+    --panel-border-hot: #3a3a3a;
+    --text: #e8e8e8;
+    --text-dim: #9a9a9a;
+    --text-dimmer: #666;
+    --good: #4ade80;
+    --good-bg: rgba(74,222,128,0.10);
+    --bad: #ef4444;
+    --bad-bg: rgba(239,68,68,0.10);
+    --neutral: #888;
+    --grid-line: rgba(253,90,30,0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--giants-black);
+    color: var(--text);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-image:
+      radial-gradient(ellipse 1200px 600px at 20% 0%, rgba(253,90,30,0.05), transparent 60%),
+      radial-gradient(ellipse 900px 500px at 90% 30%, rgba(253,90,30,0.03), transparent 60%);
+    min-height: 100vh;
+  }
+
+  /* Subtle grain texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 24px 20px 80px; position: relative; z-index: 1; }
+
+  /* ========== HEADER ========== */
+  header.site {
+    border-bottom: 2px solid var(--giants-orange);
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    position: relative;
+  }
+  header.site::after {
+    content: '';
+    position: absolute;
+    bottom: -2px; left: 0;
+    width: 60px; height: 2px;
+    background: var(--giants-cream);
+  }
+
+  h1.title {
+    font-family: 'Oswald', sans-serif;
+    font-weight: 700;
+    font-size: clamp(36px, 6vw, 64px);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text);
+    line-height: 1;
+  }
+  h1.title a { color: inherit; text-decoration: none; }
+  h1.title .orange { color: var(--giants-orange); }
+  h1.title .accent { color: var(--giants-cream); font-style: italic; font-weight: 500; }
+
+  .tagline {
+    color: var(--text-dim);
+    margin-top: 12px;
+    font-size: 15px;
+    max-width: 720px;
+  }
+
+  /* ========== CONTROL BAR ========== */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 18px 0 28px;
+  }
+  .ctl {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    padding: 6px 14px;
+    font-family: 'Oswald', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .ctl:hover {
+    border-color: var(--giants-orange);
+    color: var(--giants-orange);
+  }
+  .ctl.live {
+    border-color: var(--giants-orange);
+    color: var(--giants-orange);
+  }
+  .ctl.live::before {
+    content: '●';
+    margin-right: 6px;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  /* ========== PANELS ========== */
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    margin-bottom: 16px;
+    transition: border-color 0.2s ease;
+  }
+  .panel:hover { border-color: var(--panel-border-hot); }
+  .panel.open { border-color: var(--panel-border-hot); }
+  .panel.open:hover { border-color: #444; }
+
+  .panel-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .panel-head:hover h2 { color: var(--giants-orange); }
+
+  .panel-head .chev {
+    color: var(--giants-orange);
+    font-family: 'Oswald', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    line-height: 1.2;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .panel.open .chev { transform: rotate(90deg); }
+
+  .panel-head .ttl {
+    flex: 1;
+    min-width: 0;
+  }
+  .panel-head h2 {
+    font-family: 'Oswald', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text);
+    transition: color 0.15s ease;
+  }
+  .panel-head .sub {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .panel-head .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--giants-cream);
+    background: rgba(239,209,159,0.08);
+    border: 1px solid rgba(239,209,159,0.2);
+    padding: 2px 8px;
+    margin-left: 8px;
+    white-space: nowrap;
+  }
+
+  .panel-body {
+    display: none;
+    padding: 4px 20px 24px;
+    border-top: 1px dashed var(--panel-border);
+  }
+  .panel.open .panel-body { display: block; }
+
+  /* ========== TABS ========== */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--panel-border);
+    margin: 12px 0 16px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 8px 14px;
+    font-family: 'Oswald', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s ease;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--giants-orange);
+    border-bottom-color: var(--giants-orange);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ========== TABLES ========== */
+  table.stats {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  table.stats th {
+    text-align: left;
+    color: var(--text-dim);
+    font-family: 'Oswald', sans-serif;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+  }
+  table.stats th.num, table.stats td.num { text-align: right; }
+  table.stats td {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(42,42,42,0.5);
+    color: var(--text);
+  }
+  table.stats tr:hover td { background: rgba(253,90,30,0.04); }
+  table.stats .name { font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-size: 13px; }
+  table.stats .pos { color: var(--text-dimmer); font-size: 11px; margin-left: 4px; }
+  .good { color: var(--good); }
+  .bad { color: var(--bad); }
+  .star::after { content: ' ★'; color: var(--giants-orange); font-size: 10px; }
+
+  /* ========== TWO-COL LAYOUT ========== */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  @media (max-width: 760px) {
+    .two-col { grid-template-columns: 1fr; gap: 16px; }
+  }
+  .col-head {
+    font-family: 'Oswald', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  /* ========== HOT/COLD TEAM LIST ========== */
+  .team-list { display: flex; flex-direction: column; gap: 4px; }
+  .team-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--panel-bg-2);
+    border-left: 3px solid transparent;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .team-row.hot { border-left-color: var(--giants-orange); }
+  .team-row.cold { border-left-color: #3b82f6; }
+  .team-row .rk { color: var(--text-dimmer); font-size: 11px; }
+  .team-row .tm { font-family: 'Source Sans 3', sans-serif; font-weight: 600; color: var(--text); font-size: 13px; }
+  .team-row .rec { color: var(--text-dim); font-size: 11px; }
+  .team-row .pct { color: var(--text); font-weight: 600; }
+  .team-row.giants .tm { color: var(--giants-orange); }
+  .team-row.giants .tm::after { content: ' ◆'; color: var(--giants-cream); font-size: 10px; }
+
+  .scope-pills {
+    display: flex; gap: 6px; margin-bottom: 14px;
+  }
+  .scope-pills .pill {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    font-family: 'Oswald', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .scope-pills .pill.active {
+    border-color: var(--giants-orange);
+    color: var(--giants-orange);
+  }
+  .scope-pills .pill:hover:not(.active) { color: var(--text); }
+
+  /* ========== PLAYOFF ODDS ========== */
+  .odds-block { padding: 12px 0 4px; }
+  .odds-row {
+    display: grid;
+    grid-template-columns: 180px 1fr 80px 70px;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px dashed rgba(42,42,42,0.6);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .odds-row:last-child { border-bottom: none; }
+  .odds-row .lbl {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .odds-bar {
+    height: 10px;
+    background: var(--panel-bg-2);
+    border: 1px solid var(--panel-border);
+    position: relative;
+    overflow: hidden;
+  }
+  .odds-bar .fill {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, var(--giants-orange-dim), var(--giants-orange));
+    transform-origin: left;
+  }
+  .odds-val { text-align: right; color: var(--text); font-weight: 600; }
+  .odds-trend { text-align: right; font-size: 11px; }
+
+  /* ========== RECORD TRACKER ========== */
+  .record-chart {
+    margin-top: 12px;
+    position: relative;
+  }
+  .record-legend {
+    display: flex;
+    gap: 18px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .record-legend .swatch {
+    display: inline-block;
+    width: 18px; height: 3px;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  .record-legend .s-2025 { background: #6b7280; }
+  .record-legend .s-2026 { background: var(--giants-orange); }
+
+  /* ========== PLAYER CARDS ========== */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .player-card {
+    background: var(--panel-bg-2);
+    border: 1px solid var(--panel-border);
+    padding: 12px 14px;
+    position: relative;
+    transition: all 0.15s ease;
+  }
+  .player-card:hover {
+    border-color: var(--giants-orange);
+    transform: translateY(-1px);
+  }
+  .player-card.starter {
+    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: inset 3px 0 0 #3b82f6;
+  }
+  .player-card.alert {
+    border-color: rgba(239, 68, 68, 0.6);
+    box-shadow: inset 3px 0 0 var(--bad);
+  }
+  .pc-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .pc-name {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .pc-pos {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dimmer);
+    letter-spacing: 0.04em;
+  }
+  .pc-stat {
+    font-family: 'Oswald', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1;
+    margin: 4px 0 8px;
+  }
+  .pc-stat.up { color: var(--good); }
+  .pc-stat.down { color: var(--bad); }
+  .pc-stat.neutral { color: var(--text); }
+  .pc-label {
+    font-family: 'Oswald', sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .pc-spark { margin-top: 6px; }
+  .pc-sub {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* ========== TEAM METRIC CARDS ========== */
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .metric-card {
+    background: var(--panel-bg-2);
+    border: 1px solid var(--panel-border);
+    padding: 12px 14px;
+  }
+  .metric-card .lbl {
+    font-family: 'Oswald', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .metric-card .val {
+    font-family: 'Oswald', sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1;
+    margin: 6px 0;
+  }
+  .metric-card .lg {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dimmer);
+    margin-top: 4px;
+  }
+  .metric-card .lg .gap { margin-left: 4px; }
+
+  /* ========== SCHEDULE ========== */
+  .sched-list { display: flex; flex-direction: column; gap: 0; }
+  .sched-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 1fr 90px;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px dashed rgba(42,42,42,0.6);
+  }
+  .sched-row:last-child { border-bottom: none; }
+  .sched-row .dt {
+    font-family: 'Oswald', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--giants-cream);
+  }
+  .sched-row .opp {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .sched-row .opp .ha {
+    color: var(--text-dimmer);
+    font-weight: 400;
+    margin-right: 4px;
+  }
+  .sched-row .pitcher {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .sched-row .pitcher b { color: var(--text); font-weight: 600; }
+  .sched-row .last3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-align: right;
+  }
+  .sched-row.today {
+    background: rgba(253,90,30,0.05);
+    margin: 0 -10px;
+    padding: 10px;
+    border-bottom: 1px solid var(--giants-orange);
+  }
+
+  /* ========== PITCH MIX TABLE ========== */
+  .mix-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px dashed rgba(42,42,42,0.6);
+  }
+  .mix-row:last-child { border-bottom: none; }
+  .mix-name { font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-size: 13px; }
+  .mix-bars { display: flex; height: 22px; gap: 1px; }
+  .mix-seg {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: rgba(0,0,0,0.8);
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .mix-seg .delta {
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .mix-seg.up { box-shadow: inset 0 -3px 0 var(--good); }
+  .mix-seg.down { box-shadow: inset 0 -3px 0 var(--bad); }
+
+  .mix-legend {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    margin-bottom: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .mix-legend .sw {
+    display: inline-block;
+    width: 12px; height: 12px;
+    vertical-align: middle;
+    margin-right: 5px;
+  }
+
+  /* ========== FIELDING (OAA) ========== */
+  .oaa-row {
+    display: grid;
+    grid-template-columns: 1fr 50px 50px 80px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px dashed rgba(42,42,42,0.6);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .oaa-row .nm { font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-size: 13px; }
+  .oaa-row .ps { color: var(--text-dimmer); font-size: 11px; }
+  .oaa-row .v { text-align: right; font-weight: 600; }
+  .oaa-bar {
+    position: relative;
+    height: 8px;
+    background: var(--panel-bg-2);
+  }
+  .oaa-bar::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: -2px;
+    bottom: -2px;
+    width: 1px;
+    background: var(--text-dimmer);
+  }
+  .oaa-bar .pos-fill {
+    position: absolute;
+    left: 50%;
+    top: 0; bottom: 0;
+    background: var(--good);
+  }
+  .oaa-bar .neg-fill {
+    position: absolute;
+    right: 50%;
+    top: 0; bottom: 0;
+    background: var(--bad);
+  }
+
+  /* ========== FOOTER ========== */
+  footer.site {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  footer.site a { color: var(--giants-orange); text-decoration: none; }
+  footer.site a:hover { text-decoration: underline; }
+  .ver { font-family: 'JetBrains Mono', monospace; color: var(--text-dimmer); }
+
+  /* Power/RISP/Regression mini tracker rows */
+  .track-row {
+    display: grid;
+    grid-template-columns: 1fr 70px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px dashed rgba(42,42,42,0.6);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+  }
+  .track-row:last-child { border-bottom: none; }
+  .track-row .nm { font-family: 'Source Sans 3', sans-serif; font-weight: 600; font-size: 13px; }
+  .track-row .v { text-align: center; font-weight: 600; }
+  .trend-bar {
+    height: 6px;
+    background: var(--panel-bg-2);
+    position: relative;
+  }
+  .trend-bar .f { position: absolute; top: 0; bottom: 0; left: 0; }
+  .trend-bar .f.up { background: var(--good); }
+  .trend-bar .f.down { background: var(--bad); }
+
+  /* Inline sparkline base */
+  svg.spark { display: block; width: 100%; height: 32px; }
+
+  /* small print */
+  .footnote {
+    font-size: 11px;
+    color: var(--text-dimmer);
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+
+  ::selection { background: var(--giants-orange); color: var(--giants-black); }
+
+  /* Mobile */
+  @media (max-width: 600px) {
+    .wrap { padding: 16px 12px 60px; }
+    .odds-row { grid-template-columns: 120px 1fr 60px 50px; gap: 8px; font-size: 11px; }
+    .sched-row { grid-template-columns: 50px 1fr 1fr; }
+    .sched-row .last3 { display: none; }
+    .oaa-row { grid-template-columns: 1fr 40px 40px; gap: 8px; }
+    .oaa-row .oaa-bar, .oaa-row .ps { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="site">
+  <h1 class="title"><a href="/"><span class="orange">Giants,</span> <span class="accent">baby!</span></a></h1>
+  <p class="tagline">Live San Francisco Giants analytics — trailing-window hitter &amp; pitcher metrics, FanGraphs playoff odds, hot/cold rankings, fielding OAA, pitch-mix change detection. Click panels to open. Drag to set your dashboard preferences.</p>
+</header>
+
+<div class="controls">
+  <button class="ctl live">Live</button>
+  <button class="ctl" id="open-all">Open all</button>
+  <button class="ctl" id="close-all">Close all</button>
+  <button class="ctl" id="hide-collapsed">Hide collapsed</button>
+  <button class="ctl" id="reset-layout">Reset layout</button>
+</div>
+
+<!-- ============================ MLB HOT/COLD ============================ -->
+<section class="panel open" data-key="mlb-hotcold">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>MLB: Hottest &amp; Coldest Teams</h2>
+      <div class="sub">Hot and cold MLB teams over rolling 10/20/30 game windows.</div>
+    </div>
+    <span class="badge">L20</span>
+  </div>
+  <div class="panel-body">
+    <div class="scope-pills" data-target="mlb-scope">
+      <button class="pill">L10</button>
+      <button class="pill active">L20</button>
+      <button class="pill">L30</button>
+    </div>
+    <div class="two-col">
+      <div>
+        <div class="col-head">🔥 Hot</div>
+        <div class="team-list" id="hot-teams"></div>
+      </div>
+      <div>
+        <div class="col-head">❄ Cold</div>
+        <div class="team-list" id="cold-teams"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PLAYOFF ODDS ============================ -->
+<section class="panel open" data-key="odds">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Giants: FanGraphs Playoff Odds</h2>
+      <div class="sub">Giants playoff odds with the one-week trend.</div>
+    </div>
+    <span class="badge">7d Δ</span>
+  </div>
+  <div class="panel-body">
+    <div class="odds-block">
+      <div class="odds-row">
+        <div class="lbl">Make playoffs</div>
+        <div class="odds-bar"><div class="fill" style="width: 38.2%"></div></div>
+        <div class="odds-val">38.2%</div>
+        <div class="odds-trend good">+4.1</div>
+      </div>
+      <div class="odds-row">
+        <div class="lbl">Win NL West</div>
+        <div class="odds-bar"><div class="fill" style="width: 14.8%"></div></div>
+        <div class="odds-val">14.8%</div>
+        <div class="odds-trend good">+2.3</div>
+      </div>
+      <div class="odds-row">
+        <div class="lbl">Win Wild Card</div>
+        <div class="odds-bar"><div class="fill" style="width: 23.4%"></div></div>
+        <div class="odds-val">23.4%</div>
+        <div class="odds-trend good">+1.8</div>
+      </div>
+      <div class="odds-row">
+        <div class="lbl">Win Division Series</div>
+        <div class="odds-bar"><div class="fill" style="width: 17.1%"></div></div>
+        <div class="odds-val">17.1%</div>
+        <div class="odds-trend good">+2.0</div>
+      </div>
+      <div class="odds-row">
+        <div class="lbl">Win Pennant</div>
+        <div class="odds-bar"><div class="fill" style="width: 8.4%"></div></div>
+        <div class="odds-val">8.4%</div>
+        <div class="odds-trend good">+1.1</div>
+      </div>
+      <div class="odds-row">
+        <div class="lbl">Win World Series</div>
+        <div class="odds-bar"><div class="fill" style="width: 4.2%"></div></div>
+        <div class="odds-val">4.2%</div>
+        <div class="odds-trend good">+0.6</div>
+      </div>
+    </div>
+    <div class="footnote">Source: FanGraphs Playoff Odds (updated daily). Last refresh: today at 09:14 PT.</div>
+  </div>
+</section>
+
+<!-- ============================ RECORD TRACKER ============================ -->
+<section class="panel open" data-key="record">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Giants: 2025 vs 2026 Record Tracker</h2>
+      <div class="sub">NL West standings on hover. 2025 full season vs 2026 in progress.</div>
+    </div>
+    <span class="badge">38 G</span>
+  </div>
+  <div class="panel-body">
+    <div class="record-legend">
+      <span><span class="swatch s-2025"></span>2025 (full season)</span>
+      <span><span class="swatch s-2026"></span>2026 (in progress)</span>
+    </div>
+    <div class="record-chart">
+      <svg viewBox="0 0 800 280" preserveAspectRatio="none" style="width:100%;height:280px;display:block;background:var(--panel-bg-2);border:1px solid var(--panel-border);">
+        <!-- gridlines -->
+        <g stroke="var(--grid-line)" stroke-width="1">
+          <line x1="40" y1="40" x2="780" y2="40"/>
+          <line x1="40" y1="100" x2="780" y2="100"/>
+          <line x1="40" y1="160" x2="780" y2="160"/>
+          <line x1="40" y1="220" x2="780" y2="220"/>
+        </g>
+        <g fill="var(--text-dimmer)" font-family="JetBrains Mono" font-size="10">
+          <text x="34" y="44" text-anchor="end">+15</text>
+          <text x="34" y="104" text-anchor="end">+5</text>
+          <text x="34" y="164" text-anchor="end">-5</text>
+          <text x="34" y="224" text-anchor="end">-15</text>
+        </g>
+        <line x1="40" y1="130" x2="780" y2="130" stroke="var(--text-dimmer)" stroke-dasharray="2,3" stroke-width="1"/>
+        <text x="780" y="126" text-anchor="end" font-family="JetBrains Mono" font-size="10" fill="var(--text-dimmer)">.500</text>
+        <!-- 2025 line (gray) - finished 76-86 -->
+        <polyline fill="none" stroke="#6b7280" stroke-width="1.8" points="40,130 56,124 72,128 88,134 104,128 120,122 136,118 152,116 168,120 184,118 200,114 216,116 232,118 248,124 264,128 280,134 296,138 312,144 328,148 344,144 360,140 376,144 392,150 408,154 424,160 440,158 456,154 472,156 488,160 504,164 520,168 536,164 552,160 568,162 584,166 600,170 616,168 632,164 648,166 664,170 680,174 696,170 712,166 728,164 744,160 760,158 776,156"/>
+        <!-- 2026 line (orange) - through ~38 games, going 22-16 -->
+        <polyline fill="none" stroke="var(--giants-orange)" stroke-width="2.4" points="40,130 50,124 60,118 70,122 80,116 90,112 100,118 110,114 120,110 130,114 140,108 150,104 160,108 170,112 180,106 190,102 200,98 210,102 220,96 230,92 240,88 250,92 260,86 270,88 280,82"/>
+        <!-- end dot -->
+        <circle cx="280" cy="82" r="5" fill="var(--giants-orange)"/>
+        <circle cx="280" cy="82" r="9" fill="none" stroke="var(--giants-orange)" stroke-opacity="0.3" stroke-width="2"/>
+        <text x="290" y="78" font-family="Oswald" font-size="12" fill="var(--giants-orange)" font-weight="600">22-16</text>
+        <!-- axis labels -->
+        <text x="40" y="262" font-family="JetBrains Mono" font-size="10" fill="var(--text-dimmer)">Game 1</text>
+        <text x="410" y="262" font-family="JetBrains Mono" font-size="10" fill="var(--text-dimmer)" text-anchor="middle">Game 80</text>
+        <text x="776" y="262" font-family="JetBrains Mono" font-size="10" fill="var(--text-dimmer)" text-anchor="end">Game 162</text>
+      </svg>
+    </div>
+    <div class="footnote">Hover any point to see the box score and NL West standings entering that game.</div>
+  </div>
+</section>
+
+<!-- ============================ PLAYER HOT/COLD MLB ============================ -->
+<section class="panel open" data-key="player-hotcold">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Player Stats: Hot and Cold (MLB)</h2>
+      <div class="sub">Giants MLB roster only. Hitters sorted by trailing wOBA; pitchers by FIP. Cold-list quality gates: hitters need wOBA below .290, pitchers FIP above 3.75. Same player can never appear on both hot AND cold lists.</div>
+    </div>
+    <span class="badge">L14</span>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="hc-window">
+      <button class="tab">Last 7 days</button>
+      <button class="tab active">Last 14 days</button>
+    </div>
+
+    <div class="two-col" style="margin-top:8px">
+      <div>
+        <div class="col-head">🔥 Hottest hitters</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">PA</th><th class="num">wOBA</th><th class="num">wRC+</th><th class="num">HR</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Heliot Ramos<span class="pos">LF</span></td><td class="num">58</td><td class="num good">.428</td><td class="num good">181</td><td class="num">5</td></tr>
+            <tr><td class="name">Willy Adames<span class="pos">SS</span></td><td class="num">61</td><td class="num good">.402</td><td class="num good">162</td><td class="num">4</td></tr>
+            <tr><td class="name">Matt Chapman<span class="pos">3B</span></td><td class="num">59</td><td class="num good">.391</td><td class="num good">155</td><td class="num">3</td></tr>
+            <tr><td class="name">Jung Hoo Lee<span class="pos">CF</span></td><td class="num">62</td><td class="num good">.378</td><td class="num good">147</td><td class="num">2</td></tr>
+            <tr><td class="name">Patrick Bailey<span class="pos">C</span></td><td class="num">42</td><td class="num good">.364</td><td class="num good">139</td><td class="num">2</td></tr>
+            <tr><td class="name">Tyler Fitzgerald<span class="pos">2B</span></td><td class="num">51</td><td class="num good">.342</td><td class="num good">124</td><td class="num">3</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="col-head">🧊 Coldest hitters</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">PA</th><th class="num">wOBA</th><th class="num">wRC+</th><th class="num">K%</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Casey Schmitt<span class="pos">3B</span></td><td class="num">38</td><td class="num bad">.241</td><td class="num bad">62</td><td class="num">28.9%</td></tr>
+            <tr><td class="name">Mike Yastrzemski<span class="pos">RF</span></td><td class="num">45</td><td class="num bad">.258</td><td class="num bad">71</td><td class="num">26.7%</td></tr>
+            <tr><td class="name">Wilmer Flores<span class="pos">1B/DH</span></td><td class="num">41</td><td class="num bad">.272</td><td class="num bad">81</td><td class="num">21.9%</td></tr>
+            <tr><td class="name">LaMonte Wade Jr<span class="pos">1B</span></td><td class="num">36</td><td class="num bad">.281</td><td class="num bad">86</td><td class="num">19.4%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="two-col" style="margin-top:24px">
+      <div>
+        <div class="col-head">🔥 Hottest pitchers</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">IP</th><th class="num">FIP</th><th class="num">K/9</th><th class="num">xwOBA</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Logan Webb<span class="pos">SP</span></td><td class="num">28.1</td><td class="num good">2.18</td><td class="num">9.8</td><td class="num good">.241</td></tr>
+            <tr><td class="name">Robbie Ray<span class="pos">SP</span></td><td class="num">24.0</td><td class="num good">2.64</td><td class="num">11.6</td><td class="num good">.268</td></tr>
+            <tr><td class="name">Ryan Walker<span class="pos">RP</span></td><td class="num">9.1</td><td class="num good">1.94</td><td class="num">13.5</td><td class="num good">.218</td></tr>
+            <tr><td class="name">Camilo Doval<span class="pos">CL</span></td><td class="num">8.0</td><td class="num good">2.41</td><td class="num">12.4</td><td class="num good">.244</td></tr>
+            <tr><td class="name">Tyler Rogers<span class="pos">RP</span></td><td class="num">9.2</td><td class="num good">2.78</td><td class="num">7.8</td><td class="num good">.262</td></tr>
+            <tr><td class="name">Kyle Harrison<span class="pos">SP</span></td><td class="num">22.2</td><td class="num good">3.04</td><td class="num">9.1</td><td class="num good">.281</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="col-head">🧊 Coldest pitchers</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">IP</th><th class="num">FIP</th><th class="num">BB/9</th><th class="num">HR/9</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Jordan Hicks<span class="pos">SP</span></td><td class="num">19.1</td><td class="num bad">5.12</td><td class="num">4.8</td><td class="num bad">1.86</td></tr>
+            <tr><td class="name">Erik Miller<span class="pos">RP</span></td><td class="num">7.1</td><td class="num bad">4.84</td><td class="num bad">6.1</td><td class="num">1.22</td></tr>
+            <tr><td class="name">Hayden Birdsong<span class="pos">SP</span></td><td class="num">20.0</td><td class="num bad">4.41</td><td class="num">4.5</td><td class="num">1.35</td></tr>
+            <tr><td class="name">Spencer Bivens<span class="pos">RP</span></td><td class="num">8.2</td><td class="num bad">3.92</td><td class="num">3.1</td><td class="num bad">1.55</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ MINORS HOT/COLD ============================ -->
+<section class="panel" data-key="minors-hotcold">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Player Stats: Hot and Cold (Minor Leagues)</h2>
+      <div class="sub">Giants minor-league system. Top tab row picks affiliate (Minors rollup combines all four). Hitters sorted by wOBA; pitchers by ERA. Per-affiliate views skip the cold-list quality gate.</div>
+    </div>
+    <span class="badge">L14</span>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="affiliate">
+      <button class="tab active">All Minors</button>
+      <button class="tab">Sacramento (AAA)</button>
+      <button class="tab">Richmond (AA)</button>
+      <button class="tab">Eugene (A+)</button>
+      <button class="tab">San Jose (A)</button>
+    </div>
+    <div class="tabs" data-target="minors-window">
+      <button class="tab">Last 7 days</button>
+      <button class="tab active">Last 14 days</button>
+    </div>
+    <div class="two-col" style="margin-top:8px">
+      <div>
+        <div class="col-head">🔥 Hottest hitters</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th>Lvl</th><th class="num">PA</th><th class="num">wOBA</th><th class="num">HR</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Bryce Eldridge</td><td>AAA</td><td class="num">57</td><td class="num good">.451</td><td class="num">6</td></tr>
+            <tr><td class="name">Marco Luciano</td><td>AAA</td><td class="num">61</td><td class="num good">.392</td><td class="num">4</td></tr>
+            <tr><td class="name">Walker Martin</td><td>AA</td><td class="num">54</td><td class="num good">.378</td><td class="num">3</td></tr>
+            <tr><td class="name">Aeverson Arteaga</td><td>AA</td><td class="num">58</td><td class="num good">.354</td><td class="num">2</td></tr>
+            <tr><td class="name">Jairo Pomares</td><td>A+</td><td class="num">52</td><td class="num good">.341</td><td class="num">3</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="col-head">🧊 Coldest hitters</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th>Lvl</th><th class="num">PA</th><th class="num">wOBA</th><th class="num">K%</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Diego Velasquez</td><td>AA</td><td class="num">48</td><td class="num bad">.221</td><td class="num">31.3%</td></tr>
+            <tr><td class="name">Vaun Brown</td><td>AAA</td><td class="num">52</td><td class="num bad">.244</td><td class="num">35.6%</td></tr>
+            <tr><td class="name">Grant McCray</td><td>AAA</td><td class="num">50</td><td class="num bad">.258</td><td class="num">28.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two-col" style="margin-top:24px">
+      <div>
+        <div class="col-head">🔥 Hottest pitchers</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th>Lvl</th><th class="num">IP</th><th class="num">ERA</th><th class="num">K/9</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Reggie Crawford</td><td>AA</td><td class="num">18.2</td><td class="num good">1.45</td><td class="num">12.0</td></tr>
+            <tr><td class="name">Carson Whisenhunt</td><td>AAA</td><td class="num">21.0</td><td class="num good">2.14</td><td class="num">10.7</td></tr>
+            <tr><td class="name">Mason Black</td><td>AAA</td><td class="num">19.1</td><td class="num good">2.79</td><td class="num">9.4</td></tr>
+            <tr><td class="name">Joe Whitman</td><td>AA</td><td class="num">20.2</td><td class="num good">2.91</td><td class="num">8.9</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="col-head">🧊 Coldest pitchers</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th>Lvl</th><th class="num">IP</th><th class="num">ERA</th><th class="num">BB/9</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Trent Harris</td><td>AAA</td><td class="num">15.2</td><td class="num bad">6.21</td><td class="num">5.7</td></tr>
+            <tr><td class="name">Liam Simon</td><td>A+</td><td class="num">14.0</td><td class="num bad">5.79</td><td class="num">6.4</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ CURRENT PACE ============================ -->
+<section class="panel" data-key="pace">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Player Stats: Current Pace In 2026</h2>
+      <div class="sub">Linear extrapolation of each player's end-of-year stats over a full season based on current totals.</div>
+    </div>
+    <span class="badge">162 G</span>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="pace-type">
+      <button class="tab active">Hitters</button>
+      <button class="tab">Pitchers</button>
+    </div>
+    <table class="stats">
+      <thead><tr><th>Player</th><th class="num">G</th><th class="num">PA</th><th class="num">HR</th><th class="num">RBI</th><th class="num">SB</th><th class="num">AVG</th><th class="num">OPS</th><th class="num">fWAR</th></tr></thead>
+      <tbody>
+        <tr><td class="name">Heliot Ramos<span class="pos">LF</span></td><td class="num">155</td><td class="num">645</td><td class="num">34</td><td class="num">98</td><td class="num">12</td><td class="num">.281</td><td class="num good">.852</td><td class="num good">4.8</td></tr>
+        <tr><td class="name">Willy Adames<span class="pos">SS</span></td><td class="num">158</td><td class="num">680</td><td class="num">31</td><td class="num">95</td><td class="num">10</td><td class="num">.268</td><td class="num good">.819</td><td class="num good">4.5</td></tr>
+        <tr><td class="name">Matt Chapman<span class="pos">3B</span></td><td class="num">152</td><td class="num">630</td><td class="num">28</td><td class="num">88</td><td class="num">8</td><td class="num">.259</td><td class="num good">.798</td><td class="num good">4.9</td></tr>
+        <tr><td class="name">Jung Hoo Lee<span class="pos">CF</span></td><td class="num">160</td><td class="num">685</td><td class="num">14</td><td class="num">71</td><td class="num">16</td><td class="num">.302</td><td class="num good">.804</td><td class="num good">3.6</td></tr>
+        <tr><td class="name">Patrick Bailey<span class="pos">C</span></td><td class="num">125</td><td class="num">450</td><td class="num">11</td><td class="num">52</td><td class="num">2</td><td class="num">.244</td><td class="num">.701</td><td class="num good">3.2</td></tr>
+        <tr><td class="name">Tyler Fitzgerald<span class="pos">2B</span></td><td class="num">145</td><td class="num">560</td><td class="num">21</td><td class="num">68</td><td class="num">22</td><td class="num">.251</td><td class="num">.736</td><td class="num good">2.8</td></tr>
+        <tr><td class="name">Mike Yastrzemski<span class="pos">RF</span></td><td class="num">135</td><td class="num">505</td><td class="num">18</td><td class="num">59</td><td class="num">8</td><td class="num">.238</td><td class="num">.711</td><td class="num">1.9</td></tr>
+        <tr><td class="name">Wilmer Flores<span class="pos">1B/DH</span></td><td class="num">130</td><td class="num">470</td><td class="num">19</td><td class="num">71</td><td class="num">1</td><td class="num">.244</td><td class="num">.722</td><td class="num">1.4</td></tr>
+        <tr><td class="name">LaMonte Wade Jr<span class="pos">1B</span></td><td class="num">115</td><td class="num">395</td><td class="num">11</td><td class="num">48</td><td class="num">3</td><td class="num">.241</td><td class="num">.728</td><td class="num">1.0</td></tr>
+        <tr><td class="name">Casey Schmitt<span class="pos">3B/2B</span></td><td class="num">98</td><td class="num">315</td><td class="num">9</td><td class="num">38</td><td class="num">4</td><td class="num">.231</td><td class="num bad">.638</td><td class="num">0.4</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================ SCHEDULE ============================ -->
+<section class="panel open" data-key="schedule">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Schedule</h2>
+      <div class="sub">Upcoming probable pitchers + each opponent's team-level strength. Probables shows today plus the next 9 games with "Last three" stats per starter.</div>
+    </div>
+    <span class="badge">10 G</span>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="sched-view">
+      <button class="tab active">Probables</button>
+      <button class="tab">Opponents' Team ERA &amp; OPS</button>
+    </div>
+
+    <div class="sched-list">
+      <div class="sched-row today">
+        <div class="dt">Wed 5/13</div>
+        <div class="opp"><span class="ha">vs</span>ARI</div>
+        <div class="pitcher"><b>L. Webb</b> vs B. Pfaadt</div>
+        <div class="last3">2.18 / 1.05</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Thu 5/14</div>
+        <div class="opp"><span class="ha">vs</span>ARI</div>
+        <div class="pitcher"><b>R. Ray</b> vs Z. Gallen</div>
+        <div class="last3">2.64 / 1.12</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Fri 5/15</div>
+        <div class="opp"><span class="ha">@</span>LAD</div>
+        <div class="pitcher"><b>K. Harrison</b> vs Y. Yamamoto</div>
+        <div class="last3">3.04 / 1.18</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Sat 5/16</div>
+        <div class="opp"><span class="ha">@</span>LAD</div>
+        <div class="pitcher"><b>J. Hicks</b> vs T. Glasnow</div>
+        <div class="last3">5.12 / 1.41</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Sun 5/17</div>
+        <div class="opp"><span class="ha">@</span>LAD</div>
+        <div class="pitcher"><b>H. Birdsong</b> vs B. Snell</div>
+        <div class="last3">4.41 / 1.35</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Mon 5/18</div>
+        <div class="opp"><span class="ha">@</span>SD</div>
+        <div class="pitcher"><b>L. Webb</b> vs D. Cease</div>
+        <div class="last3">2.18 / 1.05</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Tue 5/19</div>
+        <div class="opp"><span class="ha">@</span>SD</div>
+        <div class="pitcher"><b>R. Ray</b> vs Y. Darvish</div>
+        <div class="last3">2.64 / 1.12</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Wed 5/20</div>
+        <div class="opp"><span class="ha">@</span>SD</div>
+        <div class="pitcher"><b>K. Harrison</b> vs M. King</div>
+        <div class="last3">3.04 / 1.18</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Fri 5/22</div>
+        <div class="opp"><span class="ha">vs</span>WAS</div>
+        <div class="pitcher"><b>J. Hicks</b> vs M. Gore</div>
+        <div class="last3">5.12 / 1.41</div>
+      </div>
+      <div class="sched-row">
+        <div class="dt">Sat 5/23</div>
+        <div class="opp"><span class="ha">vs</span>WAS</div>
+        <div class="pitcher"><b>H. Birdsong</b> vs J. Irvin</div>
+        <div class="last3">4.41 / 1.35</div>
+      </div>
+    </div>
+
+    <div class="footnote" style="margin-top:14px">
+      <b style="color:var(--text)">Past 14 days</b> · Avg Opponent OPS .722 · ERA 3.94 &nbsp;&nbsp;|&nbsp;&nbsp; <b style="color:var(--text)">Next 14 days</b> · Avg Opponent OPS .740 · ERA 3.78
+    </div>
+  </div>
+</section>
+
+<!-- ============================ SCOUTING (Upcoming Opponents) ============================ -->
+<section class="panel" data-key="scouting">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Scouting: Upcoming Opponents <span style="color:var(--giants-cream);font-weight:400">— ARI (5/13–5/14)</span></h2>
+      <div class="sub">Three views of the opponent's 40-man over recent windows. Probable starters in the upcoming series are flagged with a ★ in Hot/Cold and a blue card border in trailing FIP. Sample-size gates: 10 PA / 2 IP for 7d, 15 PA / 3 IP for 14d, 30 PA / 6 IP for 30d.</div>
+    </div>
+    <span class="badge">L30</span>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="opp-which">
+      <button class="tab active">Currently facing — ARI</button>
+      <button class="tab">Coming up next — LAD</button>
+    </div>
+    <div class="tabs" data-target="opp-view">
+      <button class="tab active">Hot/Cold</button>
+      <button class="tab">Trailing 30d wRC+</button>
+      <button class="tab">Trailing 30d FIP</button>
+    </div>
+    <div class="tabs" data-target="opp-window">
+      <button class="tab">Last 7 days</button>
+      <button class="tab active">Last 14 days</button>
+    </div>
+    <div class="two-col" style="margin-top:8px">
+      <div>
+        <div class="col-head">🔥 Hottest hitters</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">PA</th><th class="num">wOBA</th><th class="num">HR</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Corbin Carroll<span class="pos">RF</span></td><td class="num">62</td><td class="num good">.418</td><td class="num">4</td></tr>
+            <tr><td class="name">Ketel Marte<span class="pos">2B</span></td><td class="num">58</td><td class="num good">.401</td><td class="num">3</td></tr>
+            <tr><td class="name">Geraldo Perdomo<span class="pos">SS</span></td><td class="num">55</td><td class="num good">.374</td><td class="num">2</td></tr>
+            <tr><td class="name">Eugenio Suárez<span class="pos">3B</span></td><td class="num">59</td><td class="num good">.352</td><td class="num">4</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="col-head">🧊 Coldest hitters</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">PA</th><th class="num">wOBA</th><th class="num">K%</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Pavin Smith<span class="pos">1B</span></td><td class="num">42</td><td class="num bad">.231</td><td class="num">26.2%</td></tr>
+            <tr><td class="name">Gabriel Moreno<span class="pos">C</span></td><td class="num">48</td><td class="num bad">.244</td><td class="num">22.9%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two-col" style="margin-top:24px">
+      <div>
+        <div class="col-head">🔥 Hottest pitchers</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">IP</th><th class="num">FIP</th><th class="num">K/9</th></tr></thead>
+          <tbody>
+            <tr><td class="name star">Brandon Pfaadt<span class="pos">SP</span></td><td class="num">25.0</td><td class="num good">2.81</td><td class="num">9.4</td></tr>
+            <tr><td class="name star">Zac Gallen<span class="pos">SP</span></td><td class="num">26.2</td><td class="num good">3.02</td><td class="num">8.8</td></tr>
+            <tr><td class="name">Justin Martinez<span class="pos">RP</span></td><td class="num">10.0</td><td class="num good">2.18</td><td class="num">11.7</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div class="col-head">🧊 Coldest pitchers</div>
+        <table class="stats">
+          <thead><tr><th>Player</th><th class="num">IP</th><th class="num">FIP</th><th class="num">HR/9</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Eduardo Rodriguez<span class="pos">SP</span></td><td class="num">22.1</td><td class="num bad">4.92</td><td class="num bad">1.81</td></tr>
+            <tr><td class="name">Ryne Nelson<span class="pos">SP</span></td><td class="num">19.0</td><td class="num bad">4.41</td><td class="num">1.42</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="footnote" style="margin-top:14px">★ flags pitchers probable in this series. Card colors: wRC+ green ≥110 / red ≤90; FIP green ≤3.50 / red ≥4.50 (good pitcher = tough matchup).</div>
+  </div>
+</section>
+
+<!-- ============================ OFFENSE: ROLLING CARDS ============================ -->
+<section class="panel" data-key="off-rolling">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Offense: Rolling Player Cards (wRC+)</h2>
+      <div class="sub">One card per Giants hitter (≥15 PA). Headline is trailing-30-day wRC+ (100 = league avg, ≥110 above, ≤90 below). Sparkline is rolling-15-game wRC+ trimmed to the same 30-day window; dashed line marks the 100 baseline. Cards sorted hottest at top.</div>
+    </div>
+    <span class="badge">30d</span>
+  </div>
+  <div class="panel-body">
+    <div class="card-grid" id="hitter-cards"></div>
+  </div>
+</section>
+
+<!-- ============================ OFFENSE: TRACKERS ============================ -->
+<section class="panel" data-key="off-trackers">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Offense: Power, RISP, Regression and wRC+ Trackers</h2>
+      <div class="sub">Power &amp; RISP: green is above league average, red is below. Regression: green = regression likely; red = unlucky. wRC+: 100 = league avg, ≥110 green, ≤90 red.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="tracker">
+      <button class="tab active">wRC+</button>
+      <button class="tab">Power</button>
+      <button class="tab">RISP</button>
+      <button class="tab">Regression</button>
+    </div>
+    <div class="track-row" style="display:grid;grid-template-columns:160px 50px 1fr 50px 50px;gap:14px;align-items:center;padding:8px 0;border-bottom:1px solid var(--panel-border);font-family:Oswald,sans-serif;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-dim)">
+      <div>Player</div><div class="v" style="text-align:right">wRC+</div><div></div><div class="v" style="text-align:right">xwOBA</div><div class="v" style="text-align:right">BB%</div>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Heliot Ramos</div>
+        <div class="v good">158</div>
+        <div class="trend-bar"><div class="f up" style="width:78%"></div></div>
+        <div class="v good">.378</div>
+        <div class="v">8.9%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Willy Adames</div>
+        <div class="v good">142</div>
+        <div class="trend-bar"><div class="f up" style="width:64%"></div></div>
+        <div class="v good">.361</div>
+        <div class="v">10.4%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Matt Chapman</div>
+        <div class="v good">131</div>
+        <div class="trend-bar"><div class="f up" style="width:55%"></div></div>
+        <div class="v good">.348</div>
+        <div class="v">11.2%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Jung Hoo Lee</div>
+        <div class="v good">118</div>
+        <div class="trend-bar"><div class="f up" style="width:42%"></div></div>
+        <div class="v">.331</div>
+        <div class="v">9.6%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Patrick Bailey</div>
+        <div class="v good">112</div>
+        <div class="trend-bar"><div class="f up" style="width:36%"></div></div>
+        <div class="v">.318</div>
+        <div class="v">7.8%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Tyler Fitzgerald</div>
+        <div class="v">104</div>
+        <div class="trend-bar"><div class="f up" style="width:18%"></div></div>
+        <div class="v">.308</div>
+        <div class="v">6.5%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Wilmer Flores</div>
+        <div class="v">94</div>
+        <div class="trend-bar"><div class="f down" style="width:14%;right:0;left:auto"></div></div>
+        <div class="v">.291</div>
+        <div class="v">7.4%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">LaMonte Wade Jr</div>
+        <div class="v bad">86</div>
+        <div class="trend-bar"><div class="f down" style="width:24%;right:0;left:auto"></div></div>
+        <div class="v">.284</div>
+        <div class="v">12.1%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Mike Yastrzemski</div>
+        <div class="v bad">81</div>
+        <div class="trend-bar"><div class="f down" style="width:30%;right:0;left:auto"></div></div>
+        <div class="v bad">.271</div>
+        <div class="v">8.4%</div>
+      </div>
+      <div class="track-row" style="grid-template-columns:160px 50px 1fr 50px 50px">
+        <div class="nm">Casey Schmitt</div>
+        <div class="v bad">72</div>
+        <div class="trend-bar"><div class="f down" style="width:42%;right:0;left:auto"></div></div>
+        <div class="v bad">.258</div>
+        <div class="v">5.9%</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ OFFENSE: TEAM NUMBERS ============================ -->
+<section class="panel" data-key="off-team">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Offense: Team Numbers, Last 14 Days</h2>
+      <div class="sub">Each card is the trailing-14-game team rate, sparkline showing how it has moved per game. Dashed line is MLB league average; sparkline color and the bottom-row league number flag where the Giants sit vs that mark.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="metric-grid" id="off-team-metrics"></div>
+  </div>
+</section>
+
+<!-- ============================ PITCHING: ROLLING FIP ============================ -->
+<section class="panel" data-key="pit-rolling">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Pitching: Rolling Player Cards (FIP)</h2>
+      <div class="sub">One card per Giants pitcher. Headline is trailing-30-day FIP (3.10 ≈ league avg). Sparkline is rolling-5-appearance FIP trimmed to the same 30-day window; dashed line marks the 3.10 baseline. Cards sorted lowest FIP at top.</div>
+    </div>
+    <span class="badge">30d</span>
+  </div>
+  <div class="panel-body">
+    <div class="card-grid" id="pitcher-cards"></div>
+  </div>
+</section>
+
+<!-- ============================ PITCHING: VELO ============================ -->
+<section class="panel" data-key="pit-velo">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Pitching: Rolling Velo Player Cards</h2>
+      <div class="sub">Each card = one Giants pitcher. The number on the right is their average fastball velocity in their most recent outing; the dashed line on the sparkline marks their season average. "±" is the standard deviation of their per-outing velocity. Red border flags pitchers whose latest outing was both >1.5 SD AND >0.8 mph below their season average — an early warning for arm fatigue.</div>
+    </div>
+    <span class="badge">FB mph</span>
+  </div>
+  <div class="panel-body">
+    <div class="card-grid" id="velo-cards"></div>
+  </div>
+</section>
+
+<!-- ============================ PITCHING: PITCH MIX / STUFF+ ============================ -->
+<section class="panel" data-key="pit-mix">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Pitching: Pitch Mix Changes, Stuff+</h2>
+      <div class="sub">Pitch-mix shift detection (season baseline vs last 3 outings) plus Stuff+/Location+/Pitching+ from FanGraphs, hard-hit % and whiffs from Statcast. Cells color-coded vs MLB league average.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="tabs" data-target="mix-view">
+      <button class="tab active">Pitch Mix Changes</button>
+      <button class="tab">Stuff+</button>
+    </div>
+
+    <div class="mix-legend">
+      <span><span class="sw" style="background:#dc2626"></span>FF</span>
+      <span><span class="sw" style="background:#f97316"></span>SI</span>
+      <span><span class="sw" style="background:#eab308"></span>CH</span>
+      <span><span class="sw" style="background:#22c55e"></span>SL</span>
+      <span><span class="sw" style="background:#06b6d4"></span>CT</span>
+      <span><span class="sw" style="background:#3b82f6"></span>CU</span>
+      <span><span class="sw" style="background:#8b5cf6"></span>SW</span>
+      <span style="margin-left:14px;color:var(--text-dim)">Last 3 outings vs season. <span class="good">▲</span> = +5pp usage, <span class="bad">▼</span> = −5pp.</span>
+    </div>
+
+    <div class="mix-row">
+      <div class="mix-name">Logan Webb</div>
+      <div class="mix-bars">
+        <div class="mix-seg down" style="background:#dc2626;flex:18">FF<span class="delta">−4</span></div>
+        <div class="mix-seg up" style="background:#f97316;flex:38">SI<span class="delta">+6</span></div>
+        <div class="mix-seg" style="background:#eab308;flex:22">CH</div>
+        <div class="mix-seg" style="background:#22c55e;flex:22">SL</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Robbie Ray</div>
+      <div class="mix-bars">
+        <div class="mix-seg" style="background:#dc2626;flex:52">FF</div>
+        <div class="mix-seg up" style="background:#22c55e;flex:34">SL<span class="delta">+8</span></div>
+        <div class="mix-seg down" style="background:#3b82f6;flex:8">CU<span class="delta">−5</span></div>
+        <div class="mix-seg" style="background:#eab308;flex:6">CH</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Kyle Harrison</div>
+      <div class="mix-bars">
+        <div class="mix-seg" style="background:#dc2626;flex:55">FF</div>
+        <div class="mix-seg" style="background:#22c55e;flex:22">SL</div>
+        <div class="mix-seg" style="background:#3b82f6;flex:12">CU</div>
+        <div class="mix-seg" style="background:#eab308;flex:11">CH</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Hayden Birdsong</div>
+      <div class="mix-bars">
+        <div class="mix-seg" style="background:#dc2626;flex:48">FF</div>
+        <div class="mix-seg up" style="background:#22c55e;flex:28">SL<span class="delta">+5</span></div>
+        <div class="mix-seg" style="background:#3b82f6;flex:14">CU</div>
+        <div class="mix-seg" style="background:#eab308;flex:10">CH</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Jordan Hicks</div>
+      <div class="mix-bars">
+        <div class="mix-seg down" style="background:#f97316;flex:34">SI<span class="delta">−7</span></div>
+        <div class="mix-seg up" style="background:#06b6d4;flex:30">CT<span class="delta">+9</span></div>
+        <div class="mix-seg" style="background:#22c55e;flex:22">SL</div>
+        <div class="mix-seg" style="background:#dc2626;flex:14">FF</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Camilo Doval</div>
+      <div class="mix-bars">
+        <div class="mix-seg" style="background:#06b6d4;flex:52">CT</div>
+        <div class="mix-seg" style="background:#22c55e;flex:35">SL</div>
+        <div class="mix-seg" style="background:#f97316;flex:13">SI</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Ryan Walker</div>
+      <div class="mix-bars">
+        <div class="mix-seg" style="background:#f97316;flex:54">SI</div>
+        <div class="mix-seg" style="background:#22c55e;flex:38">SL</div>
+        <div class="mix-seg" style="background:#dc2626;flex:8">FF</div>
+      </div>
+    </div>
+    <div class="mix-row">
+      <div class="mix-name">Tyler Rogers</div>
+      <div class="mix-bars">
+        <div class="mix-seg" style="background:#f97316;flex:62">SI</div>
+        <div class="mix-seg" style="background:#22c55e;flex:21">SL</div>
+        <div class="mix-seg" style="background:#dc2626;flex:17">FF</div>
+      </div>
+    </div>
+
+    <div class="footnote" style="margin-top:20px">3 mix shifts detected — Webb (more sinker), Ray (more slider), Hicks (cutter replacing sinker).</div>
+  </div>
+</section>
+
+<!-- ============================ PITCHING: TEAM NUMBERS ============================ -->
+<section class="panel" data-key="pit-team">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Pitching: Team Numbers, Last 14 Days</h2>
+      <div class="sub">Each card is the trailing-14-game team pitching rate, sparkline showing how it has moved per game. Dashed line is the MLB league average; for pitching stats lower is better (ERA, FIP, xwOBA against, BB/9, HR/9, hard-hit %), so green = below league.</div>
+    </div>
+  </div>
+  <div class="panel-body">
+    <div class="metric-grid" id="pit-team-metrics"></div>
+  </div>
+</section>
+
+<!-- ============================ FIELDING: OAA ============================ -->
+<section class="panel open" data-key="fielding">
+  <div class="panel-head" onclick="togglePanel(this)">
+    <span class="chev">▸</span>
+    <div class="ttl">
+      <h2>Fielding: Outs Above Average Tracker</h2>
+      <div class="sub">OAA per Giants fielder this season, with each player's primary position's MLB league average for context. Sorted by OAA descending.</div>
+    </div>
+    <span class="badge">2026</span>
+  </div>
+  <div class="panel-body">
+    <div class="oaa-row" style="grid-template-columns:1fr 50px 50px 80px 1fr;font-family:Oswald,sans-serif;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-dim);border-bottom:1px solid var(--panel-border)">
+      <div>Player</div><div class="v" style="text-align:right">OAA</div><div class="v" style="text-align:right">Pos avg</div><div>Pos</div><div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Matt Chapman</span> <span class="ps">3B</span></div>
+      <div class="v good">+8</div>
+      <div class="v">+1</div>
+      <div>3B</div>
+      <div class="oaa-bar"><div class="pos-fill" style="width:36%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Patrick Bailey</span> <span class="ps">C</span></div>
+      <div class="v good">+6</div>
+      <div class="v">0</div>
+      <div>C</div>
+      <div class="oaa-bar"><div class="pos-fill" style="width:30%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Heliot Ramos</span> <span class="ps">LF</span></div>
+      <div class="v good">+4</div>
+      <div class="v">−1</div>
+      <div>LF</div>
+      <div class="oaa-bar"><div class="pos-fill" style="width:22%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Jung Hoo Lee</span> <span class="ps">CF</span></div>
+      <div class="v good">+3</div>
+      <div class="v">+1</div>
+      <div>CF</div>
+      <div class="oaa-bar"><div class="pos-fill" style="width:18%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Willy Adames</span> <span class="ps">SS</span></div>
+      <div class="v good">+2</div>
+      <div class="v">+1</div>
+      <div>SS</div>
+      <div class="oaa-bar"><div class="pos-fill" style="width:12%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Tyler Fitzgerald</span> <span class="ps">2B</span></div>
+      <div class="v">+1</div>
+      <div class="v">0</div>
+      <div>2B</div>
+      <div class="oaa-bar"><div class="pos-fill" style="width:6%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">LaMonte Wade Jr</span> <span class="ps">1B</span></div>
+      <div class="v">0</div>
+      <div class="v">0</div>
+      <div>1B</div>
+      <div class="oaa-bar"></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Mike Yastrzemski</span> <span class="ps">RF</span></div>
+      <div class="v bad">−1</div>
+      <div class="v">0</div>
+      <div>RF</div>
+      <div class="oaa-bar"><div class="neg-fill" style="width:6%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Casey Schmitt</span> <span class="ps">3B</span></div>
+      <div class="v bad">−2</div>
+      <div class="v">+1</div>
+      <div>3B</div>
+      <div class="oaa-bar"><div class="neg-fill" style="width:10%"></div></div>
+    </div>
+    <div class="oaa-row">
+      <div><span class="nm">Wilmer Flores</span> <span class="ps">1B/DH</span></div>
+      <div class="v bad">−3</div>
+      <div class="v">0</div>
+      <div>1B</div>
+      <div class="oaa-bar"><div class="neg-fill" style="width:14%"></div></div>
+    </div>
+  </div>
+</section>
+
+<footer class="site">
+  Site code last updated <span class="ver">2026-05-13</span>. Data last refreshed <span class="ver">2026-05-13 09:14 PT</span>.<br>
+  Stats: MLB Stats, Baseball Savant, FanGraphs, ESPN. Not affiliated with MLB or the San Francisco Giants.<br>
+  Vibe-coded after <a href="https://jays.baby" target="_blank" rel="noopener">jays.baby</a>. Version <span class="ver">0.1.0</span>.
+</footer>
+
+</div>
+
+<script>
+  /* =========================================================
+     DATA — Giants 2026 roster (sample)
+     ========================================================= */
+  const HITTERS = [
+    {name:"Heliot Ramos",       pos:"LF",      wrc:158, pa:182, spark:[ 95,108,121,128,142,155,148,162,158], starter:false},
+    {name:"Willy Adames",       pos:"SS",      wrc:142, pa:190, spark:[100,112,118,128,135,140,138,144,142], starter:false},
+    {name:"Matt Chapman",       pos:"3B",      wrc:131, pa:181, spark:[ 88, 98,108,118,124,128,132,134,131], starter:false},
+    {name:"Jung Hoo Lee",       pos:"CF",      wrc:118, pa:188, spark:[ 80, 88, 98,104,108,114,116,120,118], starter:false},
+    {name:"Patrick Bailey",     pos:"C",       wrc:112, pa:128, spark:[ 75, 82, 92,100,108,114,110,114,112], starter:false},
+    {name:"Tyler Fitzgerald",   pos:"2B",      wrc:104, pa:158, spark:[ 70, 78, 88, 94,100,104,108,106,104], starter:false},
+    {name:"Wilmer Flores",      pos:"1B/DH",   wrc: 94, pa:141, spark:[105,102, 98, 96, 94, 92, 95, 96, 94], starter:false},
+    {name:"LaMonte Wade Jr",    pos:"1B",      wrc: 86, pa:118, spark:[ 98, 94, 90, 88, 86, 84, 85, 87, 86], starter:false},
+    {name:"Mike Yastrzemski",   pos:"RF",      wrc: 81, pa:142, spark:[ 95, 90, 86, 82, 80, 78, 80, 82, 81], starter:false},
+    {name:"Casey Schmitt",      pos:"3B/2B",   wrc: 72, pa: 92, spark:[ 88, 80, 75, 70, 68, 66, 70, 72, 72], starter:false}
+  ];
+
+  const PITCHERS = [
+    {name:"Logan Webb",      pos:"SP", fip:2.18, ip:48.1, spark:[3.21,3.05,2.88,2.74,2.61,2.45,2.30,2.22,2.18], starter:true},
+    {name:"Ryan Walker",     pos:"RP", fip:1.94, ip:14.2, spark:[3.10,2.85,2.60,2.40,2.20,2.05,1.98,1.95,1.94], starter:false},
+    {name:"Camilo Doval",    pos:"CL", fip:2.41, ip:13.0, spark:[3.50,3.25,3.00,2.80,2.65,2.55,2.48,2.42,2.41], starter:false},
+    {name:"Robbie Ray",      pos:"SP", fip:2.64, ip:42.0, spark:[3.55,3.35,3.15,2.98,2.85,2.75,2.68,2.65,2.64], starter:true},
+    {name:"Tyler Rogers",    pos:"RP", fip:2.78, ip:14.1, spark:[3.20,3.05,2.95,2.88,2.82,2.79,2.78,2.78,2.78], starter:false},
+    {name:"Kyle Harrison",   pos:"SP", fip:3.04, ip:35.2, spark:[4.10,3.80,3.55,3.35,3.20,3.12,3.06,3.04,3.04], starter:true},
+    {name:"Erik Miller",     pos:"RP", fip:4.84, ip:12.1, spark:[3.50,3.85,4.10,4.35,4.55,4.70,4.78,4.82,4.84], starter:false},
+    {name:"Hayden Birdsong", pos:"SP", fip:4.41, ip:32.0, spark:[3.85,4.00,4.15,4.25,4.32,4.38,4.40,4.41,4.41], starter:true},
+    {name:"Jordan Hicks",    pos:"SP", fip:5.12, ip:31.2, spark:[3.95,4.20,4.45,4.70,4.85,4.98,5.05,5.10,5.12], starter:true},
+    {name:"Spencer Bivens",  pos:"RP", fip:3.92, ip:13.2, spark:[3.40,3.55,3.70,3.80,3.85,3.88,3.90,3.92,3.92], starter:false}
+  ];
+
+  const VELO = [
+    {name:"Jordan Hicks",    pos:"SP", recent:97.4, avg:99.1, sd:0.9, alert:true,  spark:[99.2,99.4,99.0,98.8,98.5,98.1,97.8,97.5,97.4]},
+    {name:"Camilo Doval",    pos:"CL", recent:98.6, avg:98.9, sd:0.6, alert:false, spark:[98.8,99.1,99.0,98.9,98.7,98.8,98.6,98.5,98.6]},
+    {name:"Ryan Walker",     pos:"RP", recent:96.4, avg:96.0, sd:0.7, alert:false, spark:[95.8,96.0,96.2,96.0,96.1,96.3,96.5,96.4,96.4]},
+    {name:"Robbie Ray",      pos:"SP", recent:94.8, avg:94.5, sd:0.5, alert:false, spark:[94.2,94.4,94.5,94.6,94.5,94.7,94.8,94.8,94.8]},
+    {name:"Logan Webb",      pos:"SP", recent:92.8, avg:92.5, sd:0.4, alert:false, spark:[92.4,92.5,92.6,92.5,92.7,92.6,92.8,92.9,92.8]},
+    {name:"Kyle Harrison",   pos:"SP", recent:94.1, avg:94.3, sd:0.6, alert:false, spark:[94.5,94.4,94.3,94.2,94.4,94.3,94.1,94.0,94.1]},
+    {name:"Hayden Birdsong", pos:"SP", recent:95.6, avg:96.2, sd:0.7, alert:true,  spark:[96.4,96.3,96.2,96.0,95.9,95.8,95.7,95.6,95.6]},
+    {name:"Tyler Rogers",    pos:"RP", recent:82.8, avg:82.5, sd:0.4, alert:false, spark:[82.4,82.5,82.5,82.6,82.5,82.7,82.8,82.8,82.8]}
+  ];
+
+  const OFF_TEAM = [
+    {lbl:"wRC+",        val:"108",   lg:"100",  good:true, spark:[ 92, 98,100,102,104,106,108,108,108]},
+    {lbl:"wOBA",        val:".332",  lg:".316", good:true, spark:[.310,.318,.322,.325,.328,.330,.331,.332,.332]},
+    {lbl:"xwOBA",       val:".325",  lg:".316", good:true, spark:[.305,.312,.318,.320,.322,.324,.325,.325,.325]},
+    {lbl:"ISO",         val:".172",  lg:".158", good:true, spark:[.142,.150,.158,.162,.165,.168,.170,.172,.172]},
+    {lbl:"BB%",         val:"9.4%",  lg:"8.6%", good:true, spark:[ 7.8,8.2,8.6,8.8,9.0,9.2,9.4,9.4,9.4]},
+    {lbl:"K%",          val:"23.1%", lg:"22.4%",good:false,spark:[ 25.0,24.2,23.8,23.4,23.2,23.1,23.1,23.0,23.1]},
+    {lbl:"BABIP",       val:".302",  lg:".291", good:true, spark:[.285,.290,.294,.298,.300,.301,.302,.302,.302]},
+    {lbl:"Hard-hit %",  val:"42.1%", lg:"39.4%",good:true, spark:[ 38,39,40,41,41.5,42,42,42.1,42.1]}
+  ];
+
+  const PIT_TEAM = [
+    {lbl:"ERA",         val:"3.41",  lg:"4.02", good:true, spark:[4.20,4.00,3.80,3.65,3.55,3.48,3.44,3.42,3.41]},
+    {lbl:"FIP",         val:"3.58",  lg:"4.05", good:true, spark:[4.25,4.05,3.88,3.75,3.68,3.62,3.60,3.59,3.58]},
+    {lbl:"xFIP",        val:"3.74",  lg:"4.08", good:true, spark:[4.20,4.05,3.92,3.85,3.80,3.76,3.75,3.74,3.74]},
+    {lbl:"xwOBA against",val:".301", lg:".316", good:true, spark:[.325,.318,.312,.308,.305,.303,.302,.301,.301]},
+    {lbl:"K/9",         val:"9.2",   lg:"8.7",  good:true, spark:[ 8.4,8.7,8.9,9.0,9.1,9.2,9.2,9.2,9.2]},
+    {lbl:"BB/9",        val:"3.4",   lg:"3.2",  good:false,spark:[ 3.0,3.1,3.2,3.3,3.4,3.4,3.4,3.4,3.4]},
+    {lbl:"HR/9",        val:"1.08",  lg:"1.18", good:true, spark:[1.30,1.25,1.20,1.15,1.12,1.10,1.09,1.08,1.08]},
+    {lbl:"Hard-hit %",  val:"36.4%", lg:"39.4%",good:true, spark:[41,40,39,38,37,36.5,36.4,36.4,36.4]}
+  ];
+
+  const TEAMS_HOT = [
+    {tm:"Yankees",     rec:"15-5",  pct:".750"},
+    {tm:"Phillies",    rec:"14-6",  pct:".700"},
+    {tm:"Brewers",     rec:"13-6",  pct:".684"},
+    {tm:"Giants",      rec:"13-7",  pct:".650", isUs:true},
+    {tm:"Dodgers",     rec:"13-7",  pct:".650"},
+    {tm:"Tigers",      rec:"12-7",  pct:".632"},
+    {tm:"Mariners",    rec:"12-8",  pct:".600"}
+  ];
+  const TEAMS_COLD = [
+    {tm:"White Sox",   rec:"4-16",  pct:".200"},
+    {tm:"Rockies",     rec:"5-15",  pct:".250"},
+    {tm:"Marlins",     rec:"6-14",  pct:".300"},
+    {tm:"Pirates",     rec:"6-14",  pct:".300"},
+    {tm:"Angels",      rec:"7-13",  pct:".350"},
+    {tm:"Athletics",   rec:"7-13",  pct:".350"},
+    {tm:"Nationals",   rec:"8-12",  pct:".400"}
+  ];
+
+  /* =========================================================
+     RENDERERS
+     ========================================================= */
+
+  // Sparkline SVG generator
+  function spark(values, opts = {}) {
+    const W = 200, H = 32, P = 2;
+    const lo = Math.min(...values);
+    const hi = Math.max(...values);
+    const range = hi - lo || 1;
+    const dx = (W - P*2) / (values.length - 1);
+    const pts = values.map((v,i) => {
+      const x = P + i*dx;
+      const y = H - P - ((v - lo) / range) * (H - P*2);
+      return [x, y];
+    });
+    const path = pts.map((p,i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const last = pts[pts.length-1];
+    const baseline = opts.baseline;
+    let baselineY = null;
+    if (baseline !== undefined) {
+      baselineY = H - P - ((baseline - lo) / range) * (H - P*2);
+      if (baselineY < 0 || baselineY > H) baselineY = null;
+    }
+    const stroke = opts.color || 'var(--giants-orange)';
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${baselineY !== null ? `<line x1="0" y1="${baselineY.toFixed(1)}" x2="${W}" y2="${baselineY.toFixed(1)}" stroke="var(--text-dimmer)" stroke-dasharray="2,3" stroke-width="1"/>` : ''}
+      <path d="${path}" fill="none" stroke="${stroke}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.2" fill="${stroke}"/>
+    </svg>`;
+  }
+
+  // Render team hot/cold lists
+  function renderTeams() {
+    const hot = document.getElementById('hot-teams');
+    const cold = document.getElementById('cold-teams');
+    hot.innerHTML = TEAMS_HOT.map((t,i) => `
+      <div class="team-row hot ${t.isUs ? 'giants' : ''}">
+        <span class="rk">${i+1}</span>
+        <span class="tm">${t.tm}</span>
+        <span class="rec">${t.rec}</span>
+        <span class="pct">${t.pct}</span>
+      </div>`).join('');
+    cold.innerHTML = TEAMS_COLD.map((t,i) => `
+      <div class="team-row cold">
+        <span class="rk">${30-i}</span>
+        <span class="tm">${t.tm}</span>
+        <span class="rec">${t.rec}</span>
+        <span class="pct">${t.pct}</span>
+      </div>`).join('');
+  }
+
+  // Render hitter cards
+  function renderHitters() {
+    const grid = document.getElementById('hitter-cards');
+    grid.innerHTML = HITTERS.map(h => {
+      const cls = h.wrc >= 110 ? 'up' : h.wrc <= 90 ? 'down' : 'neutral';
+      const color = h.wrc >= 110 ? 'var(--good)' : h.wrc <= 90 ? 'var(--bad)' : 'var(--text-dim)';
+      return `<div class="player-card">
+        <div class="pc-head">
+          <span class="pc-name">${h.name}</span>
+          <span class="pc-pos">${h.pos}</span>
+        </div>
+        <div class="pc-label">wRC+ (30d)</div>
+        <div class="pc-stat ${cls}">${h.wrc}</div>
+        <div class="pc-spark">${spark(h.spark, {baseline:100, color})}</div>
+        <div class="pc-sub"><span>${h.pa} PA</span><span>${h.spark[h.spark.length-1] - h.spark[0] > 0 ? '↑' : '↓'} ${Math.abs(h.spark[h.spark.length-1] - h.spark[0])} pts</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Render pitcher cards (lower FIP = better, sorted ascending by fip)
+  function renderPitchers() {
+    const grid = document.getElementById('pitcher-cards');
+    const sorted = [...PITCHERS].sort((a,b) => a.fip - b.fip);
+    grid.innerHTML = sorted.map(p => {
+      const cls = p.fip <= 3.50 ? 'up' : p.fip >= 4.50 ? 'down' : 'neutral';
+      const color = p.fip <= 3.50 ? 'var(--good)' : p.fip >= 4.50 ? 'var(--bad)' : 'var(--text-dim)';
+      const starterCls = p.starter ? ' starter' : '';
+      return `<div class="player-card${starterCls}">
+        <div class="pc-head">
+          <span class="pc-name">${p.name}</span>
+          <span class="pc-pos">${p.pos}</span>
+        </div>
+        <div class="pc-label">FIP (30d)</div>
+        <div class="pc-stat ${cls}">${p.fip.toFixed(2)}</div>
+        <div class="pc-spark">${spark(p.spark, {baseline:3.10, color})}</div>
+        <div class="pc-sub"><span>${p.ip} IP</span><span>${p.spark[p.spark.length-1] < p.spark[0] ? '↓' : '↑'} ${Math.abs(p.spark[p.spark.length-1] - p.spark[0]).toFixed(2)}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Render velo cards
+  function renderVelo() {
+    const grid = document.getElementById('velo-cards');
+    grid.innerHTML = VELO.map(v => {
+      const alert = v.alert ? ' alert' : '';
+      return `<div class="player-card${alert}">
+        <div class="pc-head">
+          <span class="pc-name">${v.name}</span>
+          <span class="pc-pos">${v.pos}</span>
+        </div>
+        <div class="pc-label">Last FB velo</div>
+        <div class="pc-stat ${v.alert ? 'down' : 'neutral'}">${v.recent.toFixed(1)}</div>
+        <div class="pc-spark">${spark(v.spark, {baseline: v.avg, color: v.alert ? 'var(--bad)' : 'var(--giants-orange)'})}</div>
+        <div class="pc-sub"><span>Season ${v.avg.toFixed(1)}</span><span>±${v.sd.toFixed(1)} SD</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Render team metric cards
+  function renderMetrics(targetId, data, lowerBetter = false) {
+    const grid = document.getElementById(targetId);
+    grid.innerHTML = data.map(m => {
+      const isStr = typeof m.spark[0] !== 'number' || isNaN(parseFloat(m.spark[0]));
+      const sparkVals = m.spark.map(x => parseFloat(x));
+      const color = m.good ? 'var(--good)' : 'var(--bad)';
+      const valCls = m.good ? 'good' : 'bad';
+      return `<div class="metric-card">
+        <div class="lbl">${m.lbl}</div>
+        <div class="val ${valCls}">${m.val}</div>
+        ${spark(sparkVals, {color})}
+        <div class="lg">League ${m.lg}<span class="gap ${m.good ? 'good' : 'bad'}">${m.good ? '▲' : '▼'}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  /* =========================================================
+     INTERACTIONS
+     ========================================================= */
+
+  function togglePanel(head) {
+    const p = head.parentElement;
+    p.classList.toggle('open');
+  }
+  window.togglePanel = togglePanel;
+
+  document.getElementById('open-all').addEventListener('click', () => {
+    document.querySelectorAll('.panel').forEach(p => p.classList.add('open'));
+  });
+  document.getElementById('close-all').addEventListener('click', () => {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('open'));
+  });
+  document.getElementById('hide-collapsed').addEventListener('click', (e) => {
+    document.querySelectorAll('.panel:not(.open)').forEach(p => {
+      p.style.display = p.style.display === 'none' ? '' : 'none';
+    });
+    e.target.classList.toggle('live');
+  });
+  document.getElementById('reset-layout').addEventListener('click', () => {
+    document.querySelectorAll('.panel').forEach(p => { p.style.display = ''; });
+  });
+
+  // Tab switching (within each .tabs group)
+  document.querySelectorAll('.tabs').forEach(group => {
+    group.querySelectorAll('.tab').forEach(t => {
+      t.addEventListener('click', () => {
+        group.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+      });
+    });
+  });
+
+  // Scope pill switching
+  document.querySelectorAll('.scope-pills').forEach(group => {
+    group.querySelectorAll('.pill').forEach(p => {
+      p.addEventListener('click', () => {
+        group.querySelectorAll('.pill').forEach(x => x.classList.remove('active'));
+        p.classList.add('active');
+      });
+    });
+  });
+
+  /* =========================================================
+     INIT
+     ========================================================= */
+  renderTeams();
+  renderHitters();
+  renderPitchers();
+  renderVelo();
+  renderMetrics('off-team-metrics', OFF_TEAM);
+  renderMetrics('pit-team-metrics', PIT_TEAM, true);
+</script>
+
+</body>
+</html>
