@@ -196,6 +196,30 @@
     margin-left: 8px;
     white-space: nowrap;
   }
+  .panel-head .badge.live {
+    color: var(--giants-orange);
+    background: rgba(253,90,30,0.08);
+    border-color: rgba(253,90,30,0.3);
+  }
+  .panel-head .badge.live::before {
+    content: '●';
+    margin-right: 4px;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .panel-head .badge.loading {
+    color: var(--text-dim);
+    background: transparent;
+    border-color: var(--panel-border);
+  }
+  .panel-head .badge.loading::before {
+    content: '◌';
+    margin-right: 4px;
+    animation: spin 1.2s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
 
   .panel-body {
     display: none;
@@ -709,9 +733,9 @@
     <span class="chev">▸</span>
     <div class="ttl">
       <h2>MLB: Hottest &amp; Coldest Teams</h2>
-      <div class="sub">Hot and cold MLB teams over rolling 10/20/30 game windows.</div>
+      <div class="sub">Hot and cold MLB teams. Last 10 games pulled live from MLB Stats API.</div>
     </div>
-    <span class="badge">L20</span>
+    <span class="badge loading" id="teams-badge">Loading</span>
   </div>
   <div class="panel-body">
     <div class="scope-pills" data-target="mlb-scope">
@@ -793,7 +817,7 @@
       <h2>Giants: 2025 vs 2026 Record Tracker</h2>
       <div class="sub">NL West standings on hover. 2025 full season vs 2026 in progress.</div>
     </div>
-    <span class="badge">38 G</span>
+    <span class="badge loading" id="record-badge">Loading</span>
   </div>
   <div class="panel-body">
     <div class="record-legend">
@@ -1025,9 +1049,9 @@
     <span class="chev">▸</span>
     <div class="ttl">
       <h2>Schedule</h2>
-      <div class="sub">Upcoming probable pitchers + each opponent's team-level strength. Probables shows today plus the next 9 games with "Last three" stats per starter.</div>
+      <div class="sub">Upcoming probable pitchers from MLB Stats API. Today plus the next 9 Giants games.</div>
     </div>
-    <span class="badge">10 G</span>
+    <span class="badge loading" id="sched-badge">Loading</span>
   </div>
   <div class="panel-body">
     <div class="tabs" data-target="sched-view">
@@ -1035,71 +1059,12 @@
       <button class="tab">Opponents' Team ERA &amp; OPS</button>
     </div>
 
-    <div class="sched-list">
-      <div class="sched-row today">
-        <div class="dt">Wed 5/13</div>
-        <div class="opp"><span class="ha">vs</span>ARI</div>
-        <div class="pitcher"><b>L. Webb</b> vs B. Pfaadt</div>
-        <div class="last3">2.18 / 1.05</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Thu 5/14</div>
-        <div class="opp"><span class="ha">vs</span>ARI</div>
-        <div class="pitcher"><b>R. Ray</b> vs Z. Gallen</div>
-        <div class="last3">2.64 / 1.12</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Fri 5/15</div>
-        <div class="opp"><span class="ha">@</span>LAD</div>
-        <div class="pitcher"><b>K. Harrison</b> vs Y. Yamamoto</div>
-        <div class="last3">3.04 / 1.18</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Sat 5/16</div>
-        <div class="opp"><span class="ha">@</span>LAD</div>
-        <div class="pitcher"><b>J. Hicks</b> vs T. Glasnow</div>
-        <div class="last3">5.12 / 1.41</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Sun 5/17</div>
-        <div class="opp"><span class="ha">@</span>LAD</div>
-        <div class="pitcher"><b>H. Birdsong</b> vs B. Snell</div>
-        <div class="last3">4.41 / 1.35</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Mon 5/18</div>
-        <div class="opp"><span class="ha">@</span>SD</div>
-        <div class="pitcher"><b>L. Webb</b> vs D. Cease</div>
-        <div class="last3">2.18 / 1.05</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Tue 5/19</div>
-        <div class="opp"><span class="ha">@</span>SD</div>
-        <div class="pitcher"><b>R. Ray</b> vs Y. Darvish</div>
-        <div class="last3">2.64 / 1.12</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Wed 5/20</div>
-        <div class="opp"><span class="ha">@</span>SD</div>
-        <div class="pitcher"><b>K. Harrison</b> vs M. King</div>
-        <div class="last3">3.04 / 1.18</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Fri 5/22</div>
-        <div class="opp"><span class="ha">vs</span>WAS</div>
-        <div class="pitcher"><b>J. Hicks</b> vs M. Gore</div>
-        <div class="last3">5.12 / 1.41</div>
-      </div>
-      <div class="sched-row">
-        <div class="dt">Sat 5/23</div>
-        <div class="opp"><span class="ha">vs</span>WAS</div>
-        <div class="pitcher"><b>H. Birdsong</b> vs J. Irvin</div>
-        <div class="last3">4.41 / 1.35</div>
-      </div>
+    <div class="sched-list" id="sched-list">
+      <div class="footnote">Loading Giants schedule…</div>
     </div>
 
-    <div class="footnote" style="margin-top:14px">
-      <b style="color:var(--text)">Past 14 days</b> · Avg Opponent OPS .722 · ERA 3.94 &nbsp;&nbsp;|&nbsp;&nbsp; <b style="color:var(--text)">Next 14 days</b> · Avg Opponent OPS .740 · ERA 3.78
+    <div class="footnote" style="margin-top:14px" id="sched-footnote">
+      Probable pitchers update as MLB confirms starters.
     </div>
   </div>
 </section>
@@ -1797,14 +1762,185 @@
   });
 
   /* =========================================================
+     LIVE DATA — MLB Stats API (free, no auth)
+     Docs: https://statsapi.mlb.com/
+     ========================================================= */
+
+  const GIANTS_ID = 137;
+  const SEASON = new Date().getFullYear();  // 2026 today
+
+  // Friendly short names for the standings list
+  const TEAM_SHORT = {
+    108:"Angels",109:"D-backs",110:"Orioles",111:"Red Sox",112:"Cubs",113:"Reds",
+    114:"Guardians",115:"Rockies",116:"Tigers",117:"Astros",118:"Royals",119:"Dodgers",
+    120:"Nationals",121:"Mets",133:"Athletics",134:"Pirates",135:"Padres",136:"Mariners",
+    137:"Giants",138:"Cardinals",139:"Rays",140:"Rangers",141:"Blue Jays",142:"Twins",
+    143:"Phillies",144:"Braves",145:"White Sox",146:"Marlins",147:"Yankees",158:"Brewers"
+  };
+
+  const TEAM_ABBR = {
+    108:"LAA",109:"ARI",110:"BAL",111:"BOS",112:"CHC",113:"CIN",114:"CLE",115:"COL",
+    116:"DET",117:"HOU",118:"KC",119:"LAD",120:"WSH",121:"NYM",133:"ATH",134:"PIT",
+    135:"SD",136:"SEA",137:"SF",138:"STL",139:"TB",140:"TEX",141:"TOR",142:"MIN",
+    143:"PHI",144:"ATL",145:"CWS",146:"MIA",147:"NYY",158:"MIL"
+  };
+
+  // Fetch every team's record + L10 split, then sort and render.
+  async function fetchAndRenderStandings() {
+    const badge = document.getElementById('teams-badge');
+    const recordBadge = document.getElementById('record-badge');
+    try {
+      const url = `https://statsapi.mlb.com/api/v1/standings?leagueId=103,104&season=${SEASON}&standingsTypes=regularSeason`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+
+      // Flatten teams out of the division records
+      const all = [];
+      for (const div of data.records || []) {
+        for (const tr of div.teamRecords || []) {
+          const l10 = (tr.records?.splitRecords || []).find(s => s.type === 'lastTen');
+          all.push({
+            id: tr.team.id,
+            name: TEAM_SHORT[tr.team.id] || tr.team.teamName || tr.team.name,
+            wins: tr.wins,
+            losses: tr.losses,
+            pct: parseFloat(tr.winningPercentage),
+            l10w: l10 ? l10.wins : 0,
+            l10l: l10 ? l10.losses : 0,
+            l10pct: l10 ? (l10.wins / Math.max(1, l10.wins + l10.losses)) : 0
+          });
+        }
+      }
+
+      // Sort by L10 winning percentage (tiebreak: overall record)
+      all.sort((a,b) => (b.l10pct - a.l10pct) || (b.pct - a.pct));
+
+      const hot = all.slice(0, 7);
+      const cold = all.slice(-7).reverse();
+
+      const fmtPct = p => p === 1 ? "1.000" : ("." + Math.round(p*1000).toString().padStart(3,"0"));
+      const buildRow = (t, kind, rk) => `
+        <div class="team-row ${kind} ${t.id === GIANTS_ID ? 'giants' : ''}">
+          <span class="rk">${rk}</span>
+          <span class="tm">${t.name}</span>
+          <span class="rec">${t.l10w}-${t.l10l}</span>
+          <span class="pct">${fmtPct(t.l10pct)}</span>
+        </div>`;
+
+      document.getElementById('hot-teams').innerHTML = hot.map((t,i) => buildRow(t, 'hot', i+1)).join('');
+      document.getElementById('cold-teams').innerHTML = cold.map((t,i) => buildRow(t, 'cold', 30-i)).join('');
+
+      badge.textContent = 'L10 · LIVE';
+      badge.classList.remove('loading');
+      badge.classList.add('live');
+
+      // Update record tracker badge with Giants' actual W-L
+      const giants = all.find(t => t.id === GIANTS_ID);
+      if (giants && recordBadge) {
+        recordBadge.textContent = `${giants.wins}-${giants.losses} · LIVE`;
+        recordBadge.classList.remove('loading');
+        recordBadge.classList.add('live');
+      }
+    } catch (err) {
+      console.error('Standings fetch failed:', err);
+      // Keep the static fallback that was already rendered
+      renderTeams();  // fall back to hardcoded data
+      badge.textContent = 'Offline';
+      badge.classList.remove('loading');
+      if (recordBadge) {
+        recordBadge.textContent = '38 G';
+        recordBadge.classList.remove('loading');
+      }
+    }
+  }
+
+  // Fetch Giants' next 10 games with probable pitchers.
+  async function fetchAndRenderSchedule() {
+    const badge = document.getElementById('sched-badge');
+    const list = document.getElementById('sched-list');
+    try {
+      const today = new Date();
+      const end = new Date(today);
+      end.setDate(end.getDate() + 21);  // 3-week window gives buffer for off-days
+      const fmt = d => d.toISOString().slice(0,10);
+
+      const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&teamId=${GIANTS_ID}&startDate=${fmt(today)}&endDate=${fmt(end)}&hydrate=probablePitcher`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+
+      // Flatten games across dates
+      const games = [];
+      for (const day of data.dates || []) {
+        for (const g of day.games || []) {
+          games.push(g);
+        }
+      }
+      const next10 = games.slice(0, 10);
+
+      if (next10.length === 0) {
+        list.innerHTML = '<div class="footnote">No upcoming Giants games in the next 3 weeks (off-season or schedule gap).</div>';
+        badge.textContent = '0 G';
+        badge.classList.remove('loading');
+        return;
+      }
+
+      const todayStr = fmt(today);
+      const monthDay = iso => {
+        const d = new Date(iso + 'T12:00:00');
+        const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+        return `${dow} ${d.getMonth()+1}/${d.getDate()}`;
+      };
+      const shortName = full => {
+        if (!full) return 'TBD';
+        const parts = full.split(' ');
+        return parts[0][0] + '. ' + parts.slice(1).join(' ');
+      };
+
+      list.innerHTML = next10.map(g => {
+        const isHome = g.teams.home.team.id === GIANTS_ID;
+        const oppTeam = isHome ? g.teams.away.team : g.teams.home.team;
+        const oppAbbr = TEAM_ABBR[oppTeam.id] || oppTeam.teamName || oppTeam.name;
+        const giantsPitcher = isHome ? g.teams.home.probablePitcher : g.teams.away.probablePitcher;
+        const oppPitcher = isHome ? g.teams.away.probablePitcher : g.teams.home.probablePitcher;
+        const dateStr = g.officialDate || g.gameDate.slice(0,10);
+        const isToday = dateStr === todayStr;
+
+        return `
+          <div class="sched-row${isToday ? ' today' : ''}">
+            <div class="dt">${monthDay(dateStr)}</div>
+            <div class="opp"><span class="ha">${isHome ? 'vs' : '@'}</span>${oppAbbr}</div>
+            <div class="pitcher"><b>${shortName(giantsPitcher?.fullName)}</b> vs ${shortName(oppPitcher?.fullName)}</div>
+            <div class="last3">—</div>
+          </div>`;
+      }).join('');
+
+      badge.textContent = `${next10.length} G · LIVE`;
+      badge.classList.remove('loading');
+      badge.classList.add('live');
+    } catch (err) {
+      console.error('Schedule fetch failed:', err);
+      list.innerHTML = '<div class="footnote">Could not load schedule (network or API issue). Try refreshing.</div>';
+      badge.textContent = 'Offline';
+      badge.classList.remove('loading');
+    }
+  }
+
+  /* =========================================================
      INIT
      ========================================================= */
+  // Render everything from static data first (so the page is never blank)
   renderTeams();
   renderHitters();
   renderPitchers();
   renderVelo();
   renderMetrics('off-team-metrics', OFF_TEAM);
   renderMetrics('pit-team-metrics', PIT_TEAM, true);
+
+  // Then upgrade panels with live MLB Stats API data
+  fetchAndRenderStandings();
+  fetchAndRenderSchedule();
 </script>
 
 </body>
