@@ -739,9 +739,9 @@
   </div>
   <div class="panel-body">
     <div class="scope-pills" data-target="mlb-scope">
-      <button class="pill">L10</button>
-      <button class="pill active">L20</button>
-      <button class="pill">L30</button>
+      <button class="pill active" data-window="10">L10</button>
+      <button class="pill" data-window="20">L20</button>
+      <button class="pill" data-window="30">L30</button>
     </div>
     <div class="two-col">
       <div>
@@ -1785,9 +1785,13 @@
     143:"PHI",144:"ATL",145:"CWS",146:"MIA",147:"NYY",158:"MIL"
   };
 
-  // Fetch every team's record + L10 split, then sort and render.
-  async function fetchAndRenderStandings() {
-    const badge = document.getElementById('teams-badge');
+  // ---- State for hot/cold panel ----
+  let STANDINGS_DATA = null;  // from /standings endpoint
+  let RECENT_GAMES = null;    // team_id -> [{won, date}] from /schedule
+  let CURRENT_WINDOW = 10;    // which L## button is active
+
+  // Fetch /standings: gives us each team's full-season W-L + L10 record fast.
+  async function fetchStandings() {
     const recordBadge = document.getElementById('record-badge');
     try {
       const url = `https://statsapi.mlb.com/api/v1/standings?leagueId=103,104&season=${SEASON}&standingsTypes=regularSeason`;
@@ -1795,7 +1799,6 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
 
-      // Flatten teams out of the division records
       const all = [];
       for (const div of data.records || []) {
         for (const tr of div.teamRecords || []) {
@@ -1805,55 +1808,140 @@
             name: TEAM_SHORT[tr.team.id] || tr.team.teamName || tr.team.name,
             wins: tr.wins,
             losses: tr.losses,
-            pct: parseFloat(tr.winningPercentage),
             l10w: l10 ? l10.wins : 0,
-            l10l: l10 ? l10.losses : 0,
-            l10pct: l10 ? (l10.wins / Math.max(1, l10.wins + l10.losses)) : 0
+            l10l: l10 ? l10.losses : 0
           });
         }
       }
+      STANDINGS_DATA = all;
 
-      // Sort by L10 winning percentage (tiebreak: overall record)
-      all.sort((a,b) => (b.l10pct - a.l10pct) || (b.pct - a.pct));
-
-      const hot = all.slice(0, 7);
-      const cold = all.slice(-7).reverse();
-
-      const fmtPct = p => p === 1 ? "1.000" : ("." + Math.round(p*1000).toString().padStart(3,"0"));
-      const buildRow = (t, kind, rk) => `
-        <div class="team-row ${kind} ${t.id === GIANTS_ID ? 'giants' : ''}">
-          <span class="rk">${rk}</span>
-          <span class="tm">${t.name}</span>
-          <span class="rec">${t.l10w}-${t.l10l}</span>
-          <span class="pct">${fmtPct(t.l10pct)}</span>
-        </div>`;
-
-      document.getElementById('hot-teams').innerHTML = hot.map((t,i) => buildRow(t, 'hot', i+1)).join('');
-      document.getElementById('cold-teams').innerHTML = cold.map((t,i) => buildRow(t, 'cold', 30-i)).join('');
-
-      badge.textContent = 'L10 · LIVE';
-      badge.classList.remove('loading');
-      badge.classList.add('live');
-
-      // Update record tracker badge with Giants' actual W-L
+      // Update record tracker badge with Giants' season W-L
       const giants = all.find(t => t.id === GIANTS_ID);
       if (giants && recordBadge) {
         recordBadge.textContent = `${giants.wins}-${giants.losses} · LIVE`;
         recordBadge.classList.remove('loading');
         recordBadge.classList.add('live');
       }
+
+      renderHotCold();  // paint L10 fast from this data
     } catch (err) {
       console.error('Standings fetch failed:', err);
-      // Keep the static fallback that was already rendered
       renderTeams();  // fall back to hardcoded data
-      badge.textContent = 'Offline';
-      badge.classList.remove('loading');
       if (recordBadge) {
         recordBadge.textContent = '38 G';
         recordBadge.classList.remove('loading');
       }
+      const badge = document.getElementById('teams-badge');
+      badge.textContent = 'Offline';
+      badge.classList.remove('loading');
     }
   }
+
+  // Fetch /schedule for the last 45 days: gives game-by-game results
+  // for every team, which we'll use to compute L20 and L30 records.
+  async function fetchRecentGames() {
+    try {
+      const today = new Date();
+      const start = new Date(today);
+      start.setDate(start.getDate() - 45);  // 45 days back covers L30 even with off-days
+      const fmt = d => d.toISOString().slice(0, 10);
+      const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=${fmt(start)}&endDate=${fmt(today)}&gameType=R`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+
+      const teamGames = {};
+      for (const day of data.dates || []) {
+        for (const g of day.games || []) {
+          if (g.status?.abstractGameState !== 'Final') continue;
+          const awayId = g.teams.away.team.id;
+          const homeId = g.teams.home.team.id;
+          const awayScore = g.teams.away.score;
+          const homeScore = g.teams.home.score;
+          if (awayScore === undefined || homeScore === undefined) continue;
+
+          const awayWon = awayScore > homeScore;
+          if (!teamGames[awayId]) teamGames[awayId] = [];
+          if (!teamGames[homeId]) teamGames[homeId] = [];
+          teamGames[awayId].push({ won: awayWon, date: day.date });
+          teamGames[homeId].push({ won: !awayWon, date: day.date });
+        }
+      }
+      // Sort each team's games chronologically (oldest -> newest)
+      for (const id in teamGames) {
+        teamGames[id].sort((a, b) => a.date.localeCompare(b.date));
+      }
+      RECENT_GAMES = teamGames;
+      renderHotCold();  // re-render — L20 and L30 now work
+    } catch (err) {
+      console.error('Recent games fetch failed:', err);
+      // Not fatal — L10 still works from standings data
+    }
+  }
+
+  // Render the hot/cold lists using whichever data is available for the active window.
+  function renderHotCold() {
+    const badge = document.getElementById('teams-badge');
+    const hotEl = document.getElementById('hot-teams');
+    const coldEl = document.getElementById('cold-teams');
+
+    let teams = [];
+    if (CURRENT_WINDOW === 10 && STANDINGS_DATA && !RECENT_GAMES) {
+      // Use the fast standings data for L10
+      teams = STANDINGS_DATA.map(t => ({
+        id: t.id, name: t.name,
+        w: t.l10w, l: t.l10l,
+        pct: (t.l10w + t.l10l) ? t.l10w / (t.l10w + t.l10l) : 0
+      }));
+    } else if (RECENT_GAMES) {
+      // Compute from game-by-game data
+      for (const id in RECENT_GAMES) {
+        const games = RECENT_GAMES[id].slice(-CURRENT_WINDOW);
+        const w = games.filter(g => g.won).length;
+        const l = games.length - w;
+        teams.push({
+          id: parseInt(id),
+          name: TEAM_SHORT[id] || ('Team ' + id),
+          w, l,
+          pct: games.length ? w / games.length : 0
+        });
+      }
+    } else {
+      return;  // no data yet
+    }
+
+    // Sort by winning percentage (tiebreaker: more wins)
+    teams.sort((a, b) => (b.pct - a.pct) || (b.w - a.w));
+
+    const hot = teams.slice(0, 7);
+    const cold = teams.slice(-7).reverse();
+
+    const fmtPct = p => p === 1 ? "1.000" : ("." + Math.round(p*1000).toString().padStart(3,"0"));
+    const buildRow = (t, kind, rk) => `
+      <div class="team-row ${kind} ${t.id === GIANTS_ID ? 'giants' : ''}">
+        <span class="rk">${rk}</span>
+        <span class="tm">${t.name}</span>
+        <span class="rec">${t.w}-${t.l}</span>
+        <span class="pct">${fmtPct(t.pct)}</span>
+      </div>`;
+
+    hotEl.innerHTML = hot.map((t, i) => buildRow(t, 'hot', i + 1)).join('');
+    coldEl.innerHTML = cold.map((t, i) => buildRow(t, 'cold', 30 - i)).join('');
+
+    badge.textContent = `L${CURRENT_WINDOW} · LIVE`;
+    badge.classList.remove('loading');
+    badge.classList.add('live');
+  }
+
+  // Hook up the L10/L20/L30 buttons.
+  document.querySelectorAll('.scope-pills[data-target="mlb-scope"] .pill').forEach(p => {
+    p.addEventListener('click', () => {
+      const w = parseInt(p.dataset.window, 10);
+      if (!w) return;
+      CURRENT_WINDOW = w;
+      renderHotCold();
+    });
+  });
 
   // Fetch Giants' next 10 games with probable pitchers.
   async function fetchAndRenderSchedule() {
@@ -1939,7 +2027,8 @@
   renderMetrics('pit-team-metrics', PIT_TEAM, true);
 
   // Then upgrade panels with live MLB Stats API data
-  fetchAndRenderStandings();
+  fetchStandings();       // fast: gives L10 + Giants record
+  fetchRecentGames();     // slower: enables L20 + L30
   fetchAndRenderSchedule();
 </script>
 
